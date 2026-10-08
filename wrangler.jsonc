@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "umut_iptv",
+  "name": "umut-iptv",
   "main": "worker_proxy.js",
   "compatibility_date": "2026-10-08"
 }
