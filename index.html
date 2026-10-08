@@ -1,1 +1,336 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Umut IPTV</title>
 
+<style>
+:root{
+  color-scheme:dark;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#080b10;
+  color:#fff;
+}
+.wrap{
+  max-width:900px;
+  margin:auto;
+  padding:20px;
+}
+h1{
+  margin:0 0 5px;
+  font-size:30px;
+}
+.sub{
+  color:#929baa;
+  margin-bottom:20px;
+}
+.card{
+  background:#151a21;
+  border:1px solid #2b323d;
+  border-radius:18px;
+  padding:18px;
+  margin-bottom:16px;
+}
+.status{
+  margin-top:12px;
+  padding:12px;
+  border-radius:10px;
+  background:#0d1117;
+  color:#aab3c0;
+}
+button{
+  width:100%;
+  padding:14px;
+  margin-top:10px;
+  border:0;
+  border-radius:12px;
+  background:#ef6d7f;
+  color:white;
+  font-size:16px;
+  font-weight:700;
+}
+button.secondary{
+  background:#282e39;
+}
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+#groups,#channels{
+  display:grid;
+  gap:9px;
+}
+.group,.channel{
+  text-align:left;
+  background:#202631;
+  border:1px solid #303744;
+}
+video{
+  width:100%;
+  background:#000;
+  border-radius:14px;
+  margin-top:10px;
+}
+.small{
+  color:#8993a2;
+  font-size:13px;
+}
+.hidden{
+  display:none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<h1>Umut IPTV</h1>
+<div class="sub">IPTV Player · Nutzung nur im Stand</div>
+
+<div class="card">
+
+<div class="small">Cloudflare Worker</div>
+
+<div id="worker" class="status">
+Wird geladen …
+</div>
+
+<div class="grid">
+<button onclick="connect()">Verbinden</button>
+<button class="secondary" onclick="loadGroups()">Sender laden</button>
+</div>
+
+<div id="status" class="status">
+Noch nicht verbunden
+</div>
+
+</div>
+
+<div class="card">
+<h3>Kategorien</h3>
+<div id="groups"></div>
+</div>
+
+<div class="card">
+<h3>Sender</h3>
+<div id="channels"></div>
+</div>
+
+<div class="card">
+<video id="player" controls playsinline></video>
+<div id="playerStatus" class="small">
+Kein Sender ausgewählt
+</div>
+</div>
+
+</div>
+
+<script>
+
+/*
+  TEST-ADRESSE DES CLOUDFLARE WORKERS
+
+  Diese Adresse benutzen wir zunächst,
+  weil sie bereits erfolgreich auf
+  /player_api.php geantwortet hat.
+*/
+const WORKER =
+  "https://47f4fef8-umut-iptv.h27zpz6p5p.workers.dev";
+
+document.getElementById("worker").textContent = WORKER;
+
+let connected = false;
+
+function setStatus(text){
+  document.getElementById("status").textContent = text;
+}
+
+async function api(action=""){
+
+  let url = WORKER + "/player_api.php";
+
+  if(action){
+    url += "?" + action;
+  }
+
+  const response = await fetch(url);
+
+  if(!response.ok){
+    throw new Error("HTTP " + response.status);
+  }
+
+  return await response.json();
+}
+
+async function connect(){
+
+  try{
+
+    setStatus("Verbinde …");
+
+    const data = await api();
+
+    if(data.auth !== 1){
+      throw new Error("IPTV-Konto konnte nicht bestätigt werden");
+    }
+
+    connected = true;
+
+    setStatus(
+      "Verbunden ✓ · Konto " +
+      (data.status || "aktiv")
+    );
+
+    await loadGroups();
+
+  }catch(error){
+
+    console.error(error);
+
+    setStatus(
+      "Verbindungsfehler: " +
+      error.message
+    );
+  }
+}
+
+async function loadGroups(){
+
+  try{
+
+    if(!connected){
+      await connect();
+      return;
+    }
+
+    setStatus("Lade Kategorien …");
+
+    const data =
+      await api("action=get_live_categories");
+
+    const box =
+      document.getElementById("groups");
+
+    box.innerHTML = "";
+
+    if(!Array.isArray(data) || data.length === 0){
+      box.innerHTML =
+        "<div class='small'>Keine Kategorien gefunden.</div>";
+      return;
+    }
+
+    data.forEach(category => {
+
+      const button =
+        document.createElement("button");
+
+      button.className = "group";
+
+      button.textContent =
+        category.category_name || "Kategorie";
+
+      button.onclick = () =>
+        loadChannels(category.category_id);
+
+      box.appendChild(button);
+    });
+
+    setStatus(
+      data.length +
+      " Kategorien geladen ✓"
+    );
+
+  }catch(error){
+
+    console.error(error);
+
+    setStatus(
+      "Fehler beim Laden der Kategorien: " +
+      error.message
+    );
+  }
+}
+
+async function loadChannels(categoryId){
+
+  try{
+
+    setStatus("Lade Sender …");
+
+    const data =
+      await api(
+        "action=get_live_streams&category_id=" +
+        encodeURIComponent(categoryId)
+      );
+
+    const box =
+      document.getElementById("channels");
+
+    box.innerHTML = "";
+
+    if(!Array.isArray(data) || data.length === 0){
+      box.innerHTML =
+        "<div class='small'>Keine Sender gefunden.</div>";
+      return;
+    }
+
+    data.forEach(channel => {
+
+      const button =
+        document.createElement("button");
+
+      button.className = "channel";
+
+      button.textContent =
+        channel.name || "Sender";
+
+      button.onclick = () =>
+        playChannel(channel);
+
+      box.appendChild(button);
+    });
+
+    setStatus(
+      data.length +
+      " Sender geladen ✓"
+    );
+
+  }catch(error){
+
+    console.error(error);
+
+    setStatus(
+      "Fehler beim Laden der Sender: " +
+      error.message
+    );
+  }
+}
+
+function playChannel(channel){
+
+  /*
+    Der eigentliche Stream-Proxy wird
+    im nächsten Schritt im Worker ergänzt.
+  */
+
+  document.getElementById("playerStatus").textContent =
+    "Ausgewählt: " +
+    (channel.name || "Sender") +
+    " · Stream-Proxy folgt";
+
+  setStatus(
+    "Sender ausgewählt ✓"
+  );
+}
+
+</script>
+
+</body>
+</html>
