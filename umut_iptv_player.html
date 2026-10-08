@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Umut IPTV Player</title>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif}
+*{box-sizing:border-box} body{margin:0;background:#090a0f;color:#fff}
+.wrap{max-width:900px;margin:auto;padding:22px 16px 60px}
+h1{font-size:28px;margin:4px 0 6px}.sub{color:#9ea4b2;margin-bottom:20px}
+.card{background:#151821;border:1px solid #292e3a;border-radius:18px;padding:18px;margin:14px 0}
+label{display:block;color:#b9bfcc;font-size:13px;margin:12px 0 6px}
+input,button,select{width:100%;border-radius:12px;border:1px solid #353b49;background:#0e1118;color:#fff;padding:13px;font-size:16px}
+button{background:#ef6d7f;border:0;font-weight:700;margin-top:14px}
+button.secondary{background:#252b37}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#groups button{margin:0 0 8px;text-align:left;background:#202633}
+.channel{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#171c26;border:1px solid #2b313e;margin:7px 0;padding:12px;border-radius:12px}
+.channel img{width:42px;height:42px;object-fit:contain;border-radius:8px;background:#0d1016}.channel span{flex:1}
+video{width:100%;background:#000;border-radius:14px;max-height:55vh}
+.small{font-size:13px;color:#9ea4b2;line-height:1.45}.ok{color:#65d39a}.err{color:#ff7f8e}
+@media(max-width:650px){.grid{grid-template-columns:1fr}}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Umut IPTV Player</h1>
+<div class="sub">Für APTV-Browser · Nutzung nur im Stand</div>
+
+<div class="card">
+  <div class="grid">
+    <div>
+      <label>Xtream-Server</label>
+      <input id="server" placeholder="http://server:8080">
+    </div>
+    <div>
+      <label>Benutzername</label>
+      <input id="user" autocomplete="username">
+    </div>
+  </div>
+  <label>Passwort</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <div class="grid">
+    <button id="loadXtream">Xtream laden</button>
+    <button class="secondary" id="clear">Daten löschen</button>
+  </div>
+  <p class="small">Hinweis: Der direkte Xtream-Abruf kann im Browser an CORS scheitern. Dann ist das kein Fehler dieser Seite; dein IPTV-Server muss Browserzugriffe erlauben.</p>
+</div>
+
+<div class="card">
+  <label>Alternative: M3U-Datei lokal laden</label>
+  <input id="file" type="file" accept=".m3u,.m3u8,text/plain">
+  <p id="status" class="small"></p>
+</div>
+
+<div id="playerCard" class="card hidden">
+  <video id="video" controls playsinline preload="none"></video>
+  <div id="now" class="small" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+  <div id="groups"></div>
+  <div id="channels"></div>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let channels=[], currentGroup="";
+
+function status(t, cls=""){ $("status").className="small "+cls; $("status").textContent=t; }
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+
+function parseM3U(txt){
+  const out=[]; let meta=null;
+  for(const raw of txt.split(/\r?\n/)){
+    const line=raw.trim();
+    if(!line) continue;
+    if(line.startsWith("#EXTINF:")){
+      const attrs={}; const re=/([\w-]+)="([^"]*)"/g; let m;
+      while((m=re.exec(line))) attrs[m[1]]=m[2];
+      const comma=line.indexOf(",");
+      meta={name:comma>=0?line.slice(comma+1).trim():(attrs["tvg-name"]||"Sender"), group:attrs["group-title"]||"Sonstige", logo:attrs["tvg-logo"]||""};
+    } else if(!line.startsWith("#") && meta){
+      out.push({...meta,url:line}); meta=null;
+    }
+  }
+  return out;
+}
+
+function render(){
+  const groups=[...new Set(channels.map(c=>c.group))].sort();
+  $("groups").innerHTML=groups.map(g=>`<button data-g="${esc(g)}">${esc(g)} <span style="float:right">${channels.filter(c=>c.group===g).length}</span></button>`).join("");
+  $("groups").querySelectorAll("button").forEach(b=>b.onclick=()=>{currentGroup=b.dataset.g;renderChannels()});
+  if(!currentGroup || !groups.includes(currentGroup)) currentGroup=groups[0]||"";
+  renderChannels();
+}
+function renderChannels(){
+  const list=channels.filter(c=>!currentGroup||c.group===currentGroup);
+  $("channels").innerHTML=list.map((c,i)=>`<button class="channel" data-i="${channels.indexOf(c)}">
+    ${c.logo?`<img src="${esc(c.logo)}" onerror="this.style.display='none'">`:""}
+    <span>${esc(c.name)}</span>
+  </button>`).join("");
+  $("channels").querySelectorAll(".channel").forEach(b=>b.onclick=()=>play(channels[+b.dataset.i]));
+}
+function play(c){
+  $("playerCard").classList.remove("hidden");
+  $("now").textContent=c.name;
+  const v=$("video");
+  v.src=c.url; v.load();
+  v.play().catch(()=>{});
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+$("file").onchange=async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const txt=await f.text(); channels=parseM3U(txt); currentGroup="";
+  render(); status(`${channels.length} Sender aus der Datei geladen.`,"ok");
+};
+
+$("loadXtream").onclick=async()=>{
+  let s=$("server").value.trim().replace(/\/+$/,"");
+  const u=$("user").value.trim(), p=$("pass").value;
+  if(!s||!u||!p){status("Bitte Server, Benutzername und Passwort eingeben.","err");return}
+  localStorage.setItem("umut_server",s);
+  localStorage.setItem("umut_user",u);
+  localStorage.setItem("umut_pass",p);
+  const url=s+"/player_api.php?username="+encodeURIComponent(u)+"&password="+encodeURIComponent(p)+"&action=get_live_streams";
+  status("Lade Sender …");
+  try{
+    const r=await fetch(url,{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const data=await r.json();
+    channels=(Array.isArray(data)?data:[]).map(x=>({
+      name:x.name||"Sender",group:x.category_name||"Sonstige",logo:x.stream_icon||"",
+      url:s+"/live/"+encodeURIComponent(u)+"/"+encodeURIComponent(p)+"/"+x.stream_id+".m3u8"
+    }));
+    currentGroup=""; render(); status(`${channels.length} Sender geladen.`,"ok");
+  }catch(e){
+    status("Xtream konnte im Browser nicht geladen werden ("+e.message+"). Das ist typischerweise ein CORS-/Serverproblem. Nutze dann die M3U-Datei-Option oder die native APTV-Xtream-Konfiguration.","err");
+  }
+};
+
+$("clear").onclick=()=>{
+  ["umut_server","umut_user","umut_pass"].forEach(k=>localStorage.removeItem(k));
+  $("server").value=$("user").value=$("pass").value="";
+  status("Gespeicherte Zugangsdaten gelöscht.");
+};
+
+$("server").value=localStorage.getItem("umut_server")||"";
+$("user").value=localStorage.getItem("umut_user")||"";
+$("pass").value=localStorage.getItem("umut_pass")||"";
+</script>
+</body>
+</html>
